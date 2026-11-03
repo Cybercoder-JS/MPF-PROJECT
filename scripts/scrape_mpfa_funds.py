@@ -2,19 +2,21 @@
 # -*- coding: utf-8 -*-
 """強積金基金平台資料抓取（可重複執行）。
 
+兩種資料來源模式，下游清洗/驗證/輸出完全相同：
+
+  模式 A（network）：直連 https://mfp.mpfa.org.hk 抓取
+  模式 B（local）  ：讀取 data/raw/ 下手動下載的 CSV / XLSX / XLS / HTML
+
 用法：
-  # 1) 解封網路後，先探查端點，用真實證據決定抓取方式
+  # 模式 B：把平台下載的檔案放進 data/raw/ 後執行
+  python scripts/scrape_mpfa_funds.py --mode local
+
+  # 模式 A：域名放行後，先探查端點再抓
   python scripts/scrape_mpfa_funds.py --probe
+  python scripts/scrape_mpfa_funds.py --mode network
 
-  # 2) 正式抓取 + 驗證 + 輸出
+  # 預設 auto：data/raw/ 有檔案就用模式 B，否則走模式 A
   python scripts/scrape_mpfa_funds.py
-
-  # 其他
-  --strategy download|html|auto   指定抓取方式（預設 auto：先試下載端點）
-  --no-unit-prices                跳過月末單位價格
-  --delay 2.0                     調整請求間延遲（秒）
-  --out-dir data                  輸出目錄
-  --validate-only data/funds_latest.json   只對既有檔案重跑驗證
 """
 
 from __future__ import annotations
@@ -29,20 +31,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mpfa import pipeline, probe as probe_mod, validate as validate_mod  # noqa: E402
 from mpfa.fetch import BlockedError, PoliteSession  # noqa: E402
-from mpfa.fields import FUND_COLUMNS, UNIT_PRICE_COLUMNS  # noqa: E402
+from mpfa.sources import build_source  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="抓取強積金基金平台的基金資訊表")
+    p = argparse.ArgumentParser(
+        description="抓取強積金基金平台的基金資訊表",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="模式 A = 直連平台；模式 B = 讀取 data/raw/ 的手動下載檔案。",
+    )
+    p.add_argument("--mode", choices=["auto", "network", "local"], default="auto",
+                   help="資料來源模式（預設 auto：有本地檔用 local，否則 network）")
+    p.add_argument("--raw-dir", default=Path("data/raw"), type=Path,
+                   help="模式 B 的原始檔目錄（預設 data/raw）")
+    p.add_argument("--as-of", help="手動指定資料截止日期 YYYY-MM-DD（模式 B 無法自動判定時）")
+    p.add_argument("--out-dir", default=Path("data"), type=Path)
     p.add_argument("--base-url", default="https://mfp.mpfa.org.hk")
-    p.add_argument("--out-dir", default="data", type=Path)
     p.add_argument("--probe-dir", default=Path("data/probe"), type=Path)
-    p.add_argument("--strategy", choices=["auto", "download", "html"], default="auto")
-    p.add_argument("--delay", type=float, default=1.5, help="請求之間的延遲秒數")
+    p.add_argument("--strategy", choices=["auto", "download", "html"], default="auto",
+                   help="模式 A 的抓取方式")
+    p.add_argument("--delay", type=float, default=1.5, help="模式 A 請求之間的延遲秒數")
     p.add_argument("--timeout", type=int, default=45)
-    p.add_argument("--probe", action="store_true", help="只做端點探查，不抓資料")
+    p.add_argument("--probe", action="store_true", help="只做端點探查（模式 A），不抓資料")
     p.add_argument("--no-unit-prices", action="store_true")
-    p.add_argument("--validate-only", type=Path, help="對既有 JSON 重跑驗證")
+    p.add_argument("--validate-only", type=Path, help="對既有 JSON 重跑驗證，不碰網路也不讀 raw")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -56,14 +68,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("mpfa")
 
-    # 只重跑驗證，不碰網路
     if args.validate_only:
         records = json.loads(args.validate_only.read_text(encoding="utf-8"))
         result = validate_mod.run_all(records)
         print(validate_mod.format_report(result))
         return 0 if result["all_passed"] else 1
 
-    session = PoliteSession(base_url=args.base_url, delay=args.delay, timeout=args.timeout)
+    # 模式 A 才需要 HTTP session；模式 B 完全不建立連線
+    session = None
+    if args.probe or args.mode != "local":
+        session = PoliteSession(base_url=args.base_url, delay=args.delay, timeout=args.timeout)
 
     try:
         if args.probe:
@@ -73,51 +87,35 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n完整報告：{args.probe_dir / 'probe_report.json'}")
             return 0
 
-        log.info("開始抓取（策略 =%s，延遲 =%ss）", args.strategy, args.delay)
-        result = pipeline.scrape_funds(session, strategy=args.strategy)
-        records = result["records"]
-        if not records:
-            log.error("一筆都沒抓到。先執行 --probe 檢查頁面結構與端點。")
-            return 2
-        log.info("抓到 %s 筆（方式：%s）", len(records), result["method"])
-
-        unit = {"records": [], "source": None}
-        if not args.no_unit_prices:
-            try:
-                unit = pipeline.scrape_unit_prices(session)
-                log.info("月末單位價格：%s 筆", len(unit["records"]))
-            except BlockedError:
-                raise
-            except Exception as e:  # noqa: BLE001
-                log.warning("單位價格抓取失敗（不影響主檔）：%s", e)
-
-        out = args.out_dir
-        pipeline.write_csv(records, out / "funds_latest.csv", FUND_COLUMNS)
-        pipeline.write_json(records, out / "funds_latest.json", FUND_COLUMNS)
-        if unit["records"]:
-            pipeline.write_csv(unit["records"], out / "unit_prices_latest.csv", UNIT_PRICE_COLUMNS)
-            pipeline.write_json(unit["records"], out / "unit_prices_latest.json", UNIT_PRICE_COLUMNS)
-
-        validation = validate_mod.run_all(records)
-        pipeline.write_metadata(
-            out / "metadata.json",
-            as_of_date=result["as_of_date"],
-            sources=result["sources"],
-            row_count=len(records),
-            method=result["method"],
-            unit_price_rows=len(unit["records"]),
-            unit_price_source=unit["source"],
-            validation=validation,
+        source = build_source(
+            args.mode,
+            raw_dir=args.raw_dir,
+            as_of=args.as_of,
+            session=session,
+            strategy=args.strategy,
+            with_unit_prices=not args.no_unit_prices,
         )
-        report_txt = validate_mod.format_report(validation)
-        (out / "validation_report.txt").write_text(report_txt, encoding="utf-8")
-        print(report_txt)
-        print(f"\n輸出：{out/'funds_latest.csv'}, {out/'funds_latest.json'}, {out/'metadata.json'}")
-        return 0 if validation["all_passed"] else 1
+        outcome = pipeline.run(source, args.out_dir)
+
+        print(outcome["report_text"])
+        print("\n輸出檔案：")
+        for key, path in outcome["paths"].items():
+            print(f"  {key:14} {path}")
+        meta = outcome["metadata"]
+        print(f"\n資料截止日期：{meta['data_as_of_date'] or '（未能判定）'}"
+              f"　總行數：{meta['total_rows']}　方式：{meta['scrape_method']}")
+        return 0 if outcome["validation"]["all_passed"] else 1
 
     except BlockedError as e:
         log.error("網路被阻擋，已停止，未嘗試繞過：\n%s", e)
+        log.error("改用模式 B：把平台下載的檔案放進 %s，然後執行 --mode local", args.raw_dir)
         return 3
+    except FileNotFoundError as e:
+        log.error("%s", e)
+        return 4
+    except RuntimeError as e:
+        log.error("%s", e)
+        return 2
 
 
 if __name__ == "__main__":

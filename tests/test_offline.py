@@ -87,7 +87,9 @@ realistic = [dict(recs[0], return_1y_annualised=(0.0 if i % 20 == 0 else 1.5 + i
 check("正常分布（5% 的 0）不會誤報 n.a.-as-0", V.check_na_not_zero(realistic).passed)
 check("樣本過小時不做 0 值判斷（避免假警報）", V.check_na_not_zero(recs).passed)
 cnt = {c.name: c for c in V.check_counts(recs)}
-check("行數不足時回報漏抓", not cnt["基金類別數"].passed, cnt["基金類別數"].detail)
+check("行數不足時回報漏抓", not cnt["基金總行數"].passed, cnt["基金總行數"].detail)
+check("計劃數不足時回報漏抓", not cnt["計劃數"].passed, cnt["計劃數"].detail)
+check("基金類別數為資訊項（不判定成敗）", cnt["基金類別數（資訊）"].informational)
 nr = V.null_ratios(recs)
 check("空值率計算正確（fer_pct 3 筆中 1 筆空）", abs(nr["fer_pct"]["null_ratio"] - 1/3) < 1e-4)
 check("抽樣輸出 3 筆（資料不足 5 筆時取全部）", len(V.sample_for_manual_check(recs, 5)) == 3)

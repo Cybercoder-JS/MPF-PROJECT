@@ -3,5 +3,15 @@ __pycache__/
 .venv/
 venv/
 .env
-data/probe/raw/
 .DS_Store
+
+# 模式 B 的原始下載檔不納入版控：檔案可能很大，且屬於平台原始資料
+# 而非本專案的產出。只保留說明文件。
+data/raw/*
+!data/raw/README.md
+
+# 探查時存下的原始回應（僅用於診斷）
+data/probe/raw/
+
+# 註：data/funds_latest.csv、funds_latest.json、metadata.json 等產出
+# 刻意「不」忽略 —— 那是本專案的交付物，取得真實資料後應一併提交。

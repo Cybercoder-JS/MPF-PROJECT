@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
-"""抓取流程編排與輸出。
+"""流程編排與輸出。
 
-策略（auto）：
-  1. 先試站內下載端點（mpp_download_*.jsp）。拿得到結構化檔案就用它 —— 比
-     解析 HTML 穩定，且一次就能拿到全量。
-  2. 拿不到才回退到解析 mpp_list.jsp 的 HTML 表格；若頁面以「計劃」下拉分頁，
-     則逐一計劃送出查詢（單執行緒、請求間有延遲）。
-輸出：data/funds_latest.csv、funds_latest.json、metadata.json、
-      （若平台提供）unit_prices_latest.csv。
+來源（模式 A 直連 / 模式 B 本地檔）由 mpfa/sources.py 提供，本模組只負責
+把 FetchResult 清洗後寫成檔案並附上驗證結果，因此兩種模式共用同一條流水線。
 """
 
 from __future__ import annotations
@@ -16,170 +11,37 @@ import csv
 import datetime as _dt
 import json
 import logging
-import re
 from pathlib import Path
 
-from bs4 import BeautifulSoup
-
-from .fetch import BlockedError, PoliteSession
 from .fields import DESC_BY_EN, FUND_COLUMNS, UNIT_PRICE_COLUMNS, ZH_BY_EN
-from .normalize import parse_date
-from .parse import dedupe, parse_auto, parse_html_tables, parse_unit_prices
-from .probe import CANDIDATE_DOWNLOADS
-from .parse import _find_header_row  # noqa: F401  (供測試使用)
+from .parse import extract_as_of_date  # noqa: F401  （對外沿用舊匯入路徑）
+from .validate import format_report, run_all
 
 log = logging.getLogger(__name__)
-
-LIST_PAGE = "/tch/mpp_list.jsp"
-UNIT_PRICE_CANDIDATES = [
-    "/tch/mpp_download_fund_price.jsp",
-    "/tch/mpp_download_unit_price.jsp",
-    "/tch/mpp_download_price.jsp",
-]
-
-AS_OF_PATTERNS = [
-    r"截至\s*([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})",
-    r"截至\s*([0-9]{4}\s*年\s*[0-9]{1,2}\s*月\s*[0-9]{1,2}\s*日)",
-    r"資料更新至\s*([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})",
-    r"(?i)as\s+at\s+([0-9]{1,2}\s+\w+\s+[0-9]{4})",
-]
-
-
-def extract_as_of_date(html: str) -> str | None:
-    """從頁面文字抓出資料截止日期，轉成 ISO 格式。"""
-    text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
-    for pat in AS_OF_PATTERNS:
-        m = re.search(pat, text)
-        if m:
-            raw = re.sub(r"\s+", "", m.group(1))
-            return parse_date(raw) or raw
-    return None
-
-
-def _try_downloads(session: PoliteSession, paths: list[str], columns: list[str]) -> tuple[list[dict], str | None]:
-    """逐一試下載端點，回傳 (紀錄, 成功的 URL)。"""
-    for path in paths:
-        try:
-            r = session.get(path, allow_redirects=True)
-        except BlockedError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            log.debug("下載端點 %s 無法取得：%s", path, e)
-            continue
-        if r.status_code != 200 or not r.content:
-            continue
-        try:
-            recs = parse_auto(r.content, r.headers.get("Content-Type", ""), columns=columns)
-        except Exception as e:  # noqa: BLE001
-            log.debug("下載端點 %s 解析失敗：%s", path, e)
-            continue
-        if recs:
-            log.info("下載端點可用：%s（%s 筆）", path, len(recs))
-            return recs, f"{session.base_url}{path}"
-    return [], None
-
-
-def _scheme_options(html: str) -> list[tuple[str, str, str, str]]:
-    """從頁面找出「計劃」下拉選單，回傳 [(form_action, method, field_name, value)]。"""
-    soup = BeautifulSoup(html, "lxml")
-    out = []
-    for form in soup.find_all("form"):
-        action = form.get("action") or LIST_PAGE
-        method = (form.get("method") or "GET").upper()
-        for sel in form.find_all("select"):
-            name = sel.get("name")
-            if not name:
-                continue
-            opts = [o.get("value") for o in sel.find_all("option") if (o.get("value") or "").strip()]
-            # 選項很多的下拉，通常就是計劃/受託人清單
-            if len(opts) >= 5:
-                for v in opts:
-                    out.append((action, method, name, v))
-    return out
-
-
-def _scrape_html(session: PoliteSession) -> tuple[list[dict], list[str], str | None]:
-    """回退路徑：解析 mpp_list.jsp；必要時逐一計劃送出查詢。"""
-    sources: list[str] = []
-    html = session.get_text(LIST_PAGE)
-    sources.append(f"{session.base_url}{LIST_PAGE}")
-    as_of = extract_as_of_date(html)
-
-    records = parse_html_tables(html, FUND_COLUMNS)
-    log.info("列表頁直接解析到 %s 筆", len(records))
-
-    # 若首頁只給了一部分，依下拉選項逐一查詢補齊
-    options = _scheme_options(html)
-    if options:
-        log.info("偵測到 %s 個查詢選項，逐一送出（有延遲、不併發）", len(options))
-    for action, method, field, value in options:
-        try:
-            if method == "POST":
-                r = session.post(action, data={field: value})
-            else:
-                r = session.get(action, params={field: value})
-        except BlockedError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            log.warning("查詢 %s=%s 失敗：%s", field, value, e)
-            continue
-        page_recs = parse_html_tables(r.text, FUND_COLUMNS)
-        if page_recs:
-            records.extend(page_recs)
-            sources.append(f"{action}?{field}={value}")
-
-    return dedupe(records), sources, as_of
-
-
-def scrape_funds(session: PoliteSession, strategy: str = "auto") -> dict:
-    """抓取基金資訊表。回傳 {records, sources, as_of_date, method}。"""
-    sources: list[str] = []
-    as_of = None
-
-    if strategy in ("auto", "download"):
-        recs, url = _try_downloads(session, CANDIDATE_DOWNLOADS, FUND_COLUMNS)
-        if recs:
-            # 截止日期仍需從列表頁取得
-            try:
-                as_of = extract_as_of_date(session.get_text(LIST_PAGE))
-                sources.append(f"{session.base_url}{LIST_PAGE}")
-            except Exception:  # noqa: BLE001
-                pass
-            sources.append(url)
-            return {"records": recs, "sources": sources, "as_of_date": as_of, "method": "download_endpoint"}
-        if strategy == "download":
-            raise RuntimeError("指定了 download 策略，但沒有任何下載端點可用。請先執行 --probe 查看實際端點。")
-
-    recs, sources, as_of = _scrape_html(session)
-    return {"records": recs, "sources": sources, "as_of_date": as_of, "method": "html_parse"}
-
-
-def scrape_unit_prices(session: PoliteSession) -> dict:
-    """抓取月末單位價格（平台若有提供）。"""
-    recs, url = _try_downloads(session, UNIT_PRICE_CANDIDATES, UNIT_PRICE_COLUMNS)
-    return {"records": recs, "source": url}
 
 
 # ---------------------------------------------------------------- 輸出
 
 def write_csv(records: list[dict], path: Path, columns: list[str]) -> None:
+    """UTF-8 with BOM，Excel 可直接開。None 寫成空字串（不是 0、不是 "n.a."）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
         w.writeheader()
         for r in records:
-            # None -> 空字串（而非 0 或 "n.a."）
             w.writerow({c: ("" if r.get(c) is None else r.get(c)) for c in columns})
 
 
 def write_json(records: list[dict], path: Path, columns: list[str]) -> None:
+    """None 寫成 null。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = [{c: r.get(c) for c in columns} for r in records]  # None -> null
+    payload = [{c: r.get(c) for c in columns} for r in records]
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_metadata(path: Path, *, as_of_date, sources, row_count, method,
-                   unit_price_rows=0, unit_price_source=None, validation=None) -> dict:
+                   unit_price_rows=0, unit_price_source=None, validation=None,
+                   file_report=None) -> dict:
     meta = {
         "data_as_of_date": as_of_date,
         "scraped_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
@@ -194,6 +56,8 @@ def write_metadata(path: Path, *, as_of_date, sources, row_count, method,
         ],
         "null_convention": '平台的 "n.a." 一律輸出為空值（CSV 空字串 / JSON null），絕不轉成 0',
     }
+    if file_report:
+        meta["input_files"] = file_report
     if validation is not None:
         meta["validation"] = {
             "all_passed": validation["all_passed"],
@@ -202,3 +66,58 @@ def write_metadata(path: Path, *, as_of_date, sources, row_count, method,
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
+
+
+# ---------------------------------------------------------------- 編排
+
+def run(source, out_dir: Path) -> dict:
+    """抓取 -> 驗證 -> 輸出。回傳 {result, validation, metadata, paths}。
+
+    `source` 為任何提供 `.fetch() -> FetchResult` 的物件（模式 A 或模式 B）。
+    """
+    out_dir = Path(out_dir)
+    result = source.fetch()
+
+    if not result.funds:
+        raise RuntimeError(
+            "一筆基金資料都沒取得。\n"
+            "模式 B：確認 data/raw/ 裡的檔案是基金資訊表，且表頭為平台原始欄位名。\n"
+            "模式 A：先執行 --probe 檢查頁面結構與端點。"
+        )
+
+    log.info("取得基金 %s 筆、單位價格 %s 筆（方式：%s）",
+             len(result.funds), len(result.unit_prices), result.method)
+
+    paths = {
+        "funds_csv": out_dir / "funds_latest.csv",
+        "funds_json": out_dir / "funds_latest.json",
+        "metadata": out_dir / "metadata.json",
+        "report": out_dir / "validation_report.txt",
+    }
+    write_csv(result.funds, paths["funds_csv"], FUND_COLUMNS)
+    write_json(result.funds, paths["funds_json"], FUND_COLUMNS)
+
+    if result.unit_prices:
+        paths["prices_csv"] = out_dir / "unit_prices_latest.csv"
+        paths["prices_json"] = out_dir / "unit_prices_latest.json"
+        write_csv(result.unit_prices, paths["prices_csv"], UNIT_PRICE_COLUMNS)
+        write_json(result.unit_prices, paths["prices_json"], UNIT_PRICE_COLUMNS)
+
+    validation = run_all(result.funds)
+    unit_src = next((s for s in result.sources if "price" in s.lower()), None)
+    metadata = write_metadata(
+        paths["metadata"],
+        as_of_date=result.as_of_date,
+        sources=result.sources,
+        row_count=len(result.funds),
+        method=result.method,
+        unit_price_rows=len(result.unit_prices),
+        unit_price_source=unit_src,
+        validation=validation,
+        file_report=result.file_report or None,
+    )
+    report_txt = format_report(validation)
+    paths["report"].write_text(report_txt, encoding="utf-8")
+
+    return {"result": result, "validation": validation, "metadata": metadata,
+            "paths": paths, "report_text": report_txt}

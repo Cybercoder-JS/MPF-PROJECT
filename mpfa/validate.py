@@ -15,9 +15,16 @@ from collections import Counter
 
 from .fields import FUND_COLUMNS, NUMERIC_FIELDS, ZH_BY_EN
 
-# 平台現況預期值（使用者提供）。偏差超過容許值就報警。
-EXPECTED_FUND_CATEGORIES = 451
+# 平台現況預期值。偏差超過容許值就報警。
+#
+# 註：使用者給的數字是「約 451 個基金類別、24 個計劃」。平台上「基金類別」
+# 一詞的確切粒度要見到真實資料才能確認，因此這裡把 451 當作「基金總行數」
+# 做硬性檢查（最可能的解讀），而「基金類別」的去重數只作資訊性輸出，
+# 不判定成敗，以免誤報。見到真實資料後若確認 451 指的是去重後的類別數，
+# 把 EXPECTED_FUND_CATEGORIES 改為 451 並啟用該項檢查即可。
+EXPECTED_FUND_ROWS = 451
 EXPECTED_SCHEMES = 24
+EXPECTED_FUND_CATEGORIES: int | None = None  # None = 只輸出不檢查
 COUNT_TOLERANCE = 0.02  # 2%
 
 # 這兩個欄位平台幾乎都有提供，空值率超過門檻代表解析有問題
@@ -27,11 +34,18 @@ RISK_MIN, RISK_MAX = 1, 7
 
 
 class Check:
-    def __init__(self, name: str, passed: bool, detail: str, data=None):
+    def __init__(self, name: str, passed: bool, detail: str, data=None, informational: bool = False):
         self.name, self.passed, self.detail, self.data = name, passed, detail, data
+        self.informational = informational
+
+    @property
+    def status(self) -> str:
+        if self.informational:
+            return "INFO"
+        return "PASS" if self.passed else "FAIL"
 
     def to_dict(self) -> dict:
-        d = {"check": self.name, "status": "PASS" if self.passed else "FAIL", "detail": self.detail}
+        d = {"check": self.name, "status": self.status, "detail": self.detail}
         if self.data is not None:
             d["data"] = self.data
         return d
@@ -42,20 +56,27 @@ def check_counts(records: list[dict]) -> list[Check]:
     categories = {r.get("fund_category") for r in records if r.get("fund_category")}
     schemes = {r.get("scheme_name") for r in records if r.get("scheme_name")}
     trustees = {r.get("trustee") for r in records if r.get("trustee")}
-    checks = [Check("總行數", n > 0, f"共 {n} 行基金紀錄", {"rows": n})]
 
     def _cmp(label: str, got: int, expected: int) -> Check:
-        lo = expected * (1 - COUNT_TOLERANCE)
-        hi = expected * (1 + COUNT_TOLERANCE)
+        lo, hi = expected * (1 - COUNT_TOLERANCE), expected * (1 + COUNT_TOLERANCE)
         ok = lo <= got <= hi
-        msg = f"{label}：抓到 {got}，預期約 {expected}"
+        msg = f"抓到 {got}，預期約 {expected}"
         if not ok:
-            msg += f" —— 偏差 {got - expected:+d}，可能漏抓（檢查分頁、計劃迴圈是否跑完）"
+            msg += (f" —— 偏差 {got - expected:+d}，可能漏抓"
+                    f"（檢查分頁、計劃迴圈是否跑完，或下載檔是否只含部分計劃）")
         return Check(label, ok, msg, {"got": got, "expected": expected})
 
-    checks.append(_cmp("基金類別數", len(categories), EXPECTED_FUND_CATEGORIES))
-    checks.append(_cmp("計劃數", len(schemes), EXPECTED_SCHEMES))
-    checks.append(Check("受託人數", len(trustees) > 0, f"受託人：{len(trustees)} 個", {"got": len(trustees)}))
+    checks = [_cmp("基金總行數", n, EXPECTED_FUND_ROWS),
+              _cmp("計劃數", len(schemes), EXPECTED_SCHEMES)]
+
+    if EXPECTED_FUND_CATEGORIES is not None:
+        checks.append(_cmp("基金類別數", len(categories), EXPECTED_FUND_CATEGORIES))
+    else:
+        checks.append(Check("基金類別數（資訊）", True,
+                            f"去重後 {len(categories)} 個不同的基金類別",
+                            {"got": len(categories)}, informational=True))
+    checks.append(Check("受託人數（資訊）", True, f"去重後 {len(trustees)} 個受託人",
+                        {"got": len(trustees)}, informational=True))
     return checks
 
 
@@ -146,7 +167,7 @@ def run_all(records: list[dict]) -> dict:
     checks.append(check_na_not_zero(records))
     return {
         "checks": [c.to_dict() for c in checks],
-        "all_passed": all(c.passed for c in checks),
+        "all_passed": all(c.passed for c in checks if not c.informational),
         "null_ratios": ratios,
         "manual_sample": sample_for_manual_check(records),
     }
@@ -155,8 +176,7 @@ def run_all(records: list[dict]) -> dict:
 def format_report(result: dict) -> str:
     lines = ["=" * 70, "驗證報告", "=" * 70]
     for c in result["checks"]:
-        mark = "PASS" if c["status"] == "PASS" else "FAIL"
-        lines.append(f"[{mark}] {c['check']}: {c['detail']}")
+        lines.append(f"[{c['status']:<4}] {c['check']}: {c['detail']}")
         if c["status"] == "FAIL" and c.get("data"):
             for item in (c["data"] if isinstance(c["data"], list) else [c["data"]])[:10]:
                 lines.append(f"         {item}")

@@ -74,10 +74,16 @@ def is_na(value) -> bool:
 
 
 def clean_text(value) -> str | None:
-    """文字欄位：壓縮空白；"n.a." 類值回傳 None。"""
+    """文字欄位：只壓縮空白，**不做 NFKC 正規化**；"n.a." 類值回傳 None。
+
+    刻意不對值做 NFKC：NFKC 會把全角標點改寫成半角（例如基金名稱裡的
+    "股票基金－環球" 的 "－" 會變成 "-"），那等於篡改平台原文。
+    NFKC 只用於欄位標題比對（normalize_header）與空值偵測（is_na），
+    那兩處只是做比對，不會寫進輸出。
+    """
     if is_na(value):
         return None
-    s = unicodedata.normalize("NFKC", str(value))
+    s = str(value)
     s = re.sub(r"\s+", " ", s).strip()
     return s or None
 
