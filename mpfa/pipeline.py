@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-from .fields import DESC_BY_EN, FUND_COLUMNS, UNIT_PRICE_COLUMNS, ZH_BY_EN
+from .fields import FUND_COLUMNS, UNIT_PRICE_COLUMNS, desc_for, zh_for
 from .parse import extract_as_of_date  # noqa: F401  （對外沿用舊匯入路徑）
 from .validate import format_report, run_all
 
@@ -41,7 +41,9 @@ def write_json(records: list[dict], path: Path, columns: list[str]) -> None:
 
 def write_metadata(path: Path, *, as_of_date, sources, row_count, method,
                    unit_price_rows=0, unit_price_source=None, validation=None,
-                   file_report=None) -> dict:
+                   file_report=None, columns=None, calendar_years=None,
+                   page_reported_total=None, last_updated=None,
+                   diagnostics=None) -> dict:
     meta = {
         "data_as_of_date": as_of_date,
         "scraped_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
@@ -51,13 +53,18 @@ def write_metadata(path: Path, *, as_of_date, sources, row_count, method,
         "unit_price_rows": unit_price_rows,
         "unit_price_source": unit_price_source,
         "columns": [
-            {"field": c, "zh": ZH_BY_EN.get(c), "description": DESC_BY_EN.get(c)}
-            for c in FUND_COLUMNS
+            {"field": c, "zh": zh_for(c), "description": desc_for(c)}
+            for c in (columns or FUND_COLUMNS)
         ],
+        "calendar_years": calendar_years or [],
+        "page_reported_total": page_reported_total,
+        "page_last_updated": last_updated,
         "null_convention": '平台的 "n.a." 一律輸出為空值（CSV 空字串 / JSON null），絕不轉成 0',
     }
     if file_report:
         meta["input_files"] = file_report
+    if diagnostics:
+        meta["parser_diagnostics"] = diagnostics
     if validation is not None:
         meta["validation"] = {
             "all_passed": validation["all_passed"],
@@ -77,6 +84,7 @@ def run(source, out_dir: Path) -> dict:
     """
     out_dir = Path(out_dir)
     result = source.fetch()
+    columns = result.columns or FUND_COLUMNS
 
     if not result.funds:
         raise RuntimeError(
@@ -94,8 +102,8 @@ def run(source, out_dir: Path) -> dict:
         "metadata": out_dir / "metadata.json",
         "report": out_dir / "validation_report.txt",
     }
-    write_csv(result.funds, paths["funds_csv"], FUND_COLUMNS)
-    write_json(result.funds, paths["funds_json"], FUND_COLUMNS)
+    write_csv(result.funds, paths["funds_csv"], columns)
+    write_json(result.funds, paths["funds_json"], columns)
 
     if result.unit_prices:
         paths["prices_csv"] = out_dir / "unit_prices_latest.csv"
@@ -103,7 +111,7 @@ def run(source, out_dir: Path) -> dict:
         write_csv(result.unit_prices, paths["prices_csv"], UNIT_PRICE_COLUMNS)
         write_json(result.unit_prices, paths["prices_json"], UNIT_PRICE_COLUMNS)
 
-    validation = run_all(result.funds)
+    validation = run_all(result.funds, columns)
     unit_src = next((s for s in result.sources if "price" in s.lower()), None)
     metadata = write_metadata(
         paths["metadata"],
@@ -115,6 +123,11 @@ def run(source, out_dir: Path) -> dict:
         unit_price_source=unit_src,
         validation=validation,
         file_report=result.file_report or None,
+        columns=columns,
+        calendar_years=result.calendar_years,
+        page_reported_total=result.page_reported_total,
+        last_updated=result.last_updated,
+        diagnostics=result.diagnostics or None,
     )
     report_txt = format_report(validation)
     paths["report"].write_text(report_txt, encoding="utf-8")

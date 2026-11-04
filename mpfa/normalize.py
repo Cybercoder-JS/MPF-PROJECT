@@ -174,3 +174,67 @@ def coerce(field: str, value):
     if field in NUMERIC_FIELDS or field == "unit_price":
         return parse_number(value)
     return clean_text(value)
+
+
+# ------------------------------------------------------------ 費用欄位
+
+# 區間寫法：兩個非負數字中間一個分隔符。刻意要求前段為非負，
+# 否則 "-1.26" 這種負數會被誤判成區間。
+_FEE_RANGE_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*(?:[-–—~]|至)\s*(\d+(?:\.\d+)?)\s*%?\s*$"
+)
+# 「最高 X」／「最低 X」／「up to X」
+_FEE_CAP_RE = re.compile(
+    r"^\s*(?:最高|最多|不超過|upto|up\s+to|max(?:imum)?)\s*[:：]?\s*"
+    r"(-?\d+(?:\.\d+)?)\s*%?\s*$", re.I
+)
+_FEE_FLOOR_RE = re.compile(
+    r"^\s*(?:最低|至少|min(?:imum)?)\s*[:：]?\s*(-?\d+(?:\.\d+)?)\s*%?\s*$", re.I
+)
+
+FEE_BASIS_EXACT = "exact"
+FEE_BASIS_MAX = "max"
+FEE_BASIS_MIN = "min"
+FEE_BASIS_RANGE = "range"
+
+
+def parse_fee(value) -> tuple[str | None, float | None, str | None]:
+    """解析費用欄位，回傳 (原文, 數值, 形式)。
+
+    平台上這些欄位有三種寫法，不能當成純數字：
+      "1.205"        -> (原文, 1.205, "exact")
+      "最高 1.205"    -> (原文, 1.205, "max")      取 X
+      "0.84 - 0.96"  -> (原文, 0.96,  "range")    區間取上限
+      "n.a."         -> (None,  None,  None)
+
+    原文一律保留（供人工核對與下游重新解讀），數值供計算使用。
+    無法解析成數字時，原文保留、數值為 None，不猜測。
+    """
+    if is_na(value):
+        return None, None, None
+
+    raw = re.sub(r"\s+", " ", str(value)).strip()
+    if not raw:
+        return None, None, None
+
+    probe = unicodedata.normalize("NFKC", raw)
+
+    m = _FEE_RANGE_RE.match(probe)
+    if m:
+        lo, hi = float(m.group(1)), float(m.group(2))
+        return raw, max(lo, hi), FEE_BASIS_RANGE
+
+    m = _FEE_CAP_RE.match(probe)
+    if m:
+        return raw, float(m.group(1)), FEE_BASIS_MAX
+
+    m = _FEE_FLOOR_RE.match(probe)
+    if m:
+        return raw, float(m.group(1)), FEE_BASIS_MIN
+
+    n = parse_number(probe)
+    if n is not None:
+        return raw, n, FEE_BASIS_EXACT
+
+    # 看不懂的寫法：保留原文，數值留空，不瞎猜
+    return raw, None, None

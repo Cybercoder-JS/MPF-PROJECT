@@ -17,6 +17,7 @@ from pathlib import Path
 from .fetch import BlockedError, PoliteSession
 from .fields import FUND_COLUMNS, UNIT_PRICE_COLUMNS
 from .normalize import parse_date
+from .mpp_html import MppStructureError, looks_like_mpp_list, parse_mpp_list
 from .parse import (
     classify_table,
     dedupe,
@@ -56,6 +57,14 @@ class FetchResult:
     as_of_date: str | None = None
     method: str = ""
     file_report: list[dict] = field(default_factory=list)
+    # 基金欄位順序。曆年回報的年份每年推移，所以由解析層決定，
+    # 下游輸出與驗證都用這份清單；None 代表用 fields.FUND_COLUMNS 預設值。
+    columns: list[str] | None = None
+    calendar_years: list[int] = field(default_factory=list)
+    # 頁面自報的「已選擇的成分基金總數」與最後更新日期（僅記錄，不用於判定）
+    page_reported_total: int | None = None
+    last_updated: str | None = None
+    diagnostics: dict = field(default_factory=dict)
 
 
 # ------------------------------------------------------------------ 模式 B
@@ -124,9 +133,51 @@ class LocalSource:
         report: list[dict] = []
         as_of_candidates: list[str] = []
 
+        columns: list[str] | None = None
+        calendar_years: list[int] = []
+        reported_total: int | None = None
+        last_updated: str | None = None
+        diagnostics: dict = {}
+
         for path in files:
             data = path.read_bytes()
             entry = {"file": str(path.relative_to(self.raw_dir)), "bytes": len(data)}
+
+            # HTML：先試基金資訊表的專用解析器（表頭跨三列，通用解析對不齊）
+            if path.suffix.lower() in (".html", ".htm"):
+                text = _sniff_text(data)
+                if looks_like_mpp_list(text):
+                    try:
+                        mpp = parse_mpp_list(text)
+                    except MppStructureError as e:
+                        entry["error"] = f"MppStructureError: {e}"
+                        log.error("%s：%s", path.name, e)
+                        report.append(entry)
+                        continue
+                    funds.extend(mpp.records)
+                    columns = mpp.columns
+                    calendar_years = mpp.calendar_years
+                    reported_total = mpp.reported_total
+                    last_updated = mpp.last_updated
+                    diagnostics[entry["file"]] = mpp.diagnostics
+                    if mpp.as_of_date:
+                        as_of_candidates.append(mpp.as_of_date)
+                    entry.update({"parser": "mpp_list_html", "tables": 1,
+                                  "kinds": ["funds"], "fund_rows": len(mpp.records),
+                                  "unit_price_rows": 0,
+                                  "calendar_years": calendar_years,
+                                  "page_reported_total": reported_total,
+                                  "page_as_of": mpp.as_of_date,
+                                  "page_last_updated": last_updated})
+                    log.info("  %s -> 基金資訊表 %s 列（曆年回報 %s）",
+                             path.name, len(mpp.records), calendar_years)
+                    report.append(entry)
+                    sources.append(f"local:{path.relative_to(self.raw_dir)}")
+                    fn_date = self._as_of_from_filename(path)
+                    if fn_date:
+                        as_of_candidates.append(fn_date)
+                    continue
+
             try:
                 tables = tables_from_bytes(data, filename=path.name)
             except Exception as e:  # noqa: BLE001
@@ -192,6 +243,11 @@ class LocalSource:
             as_of_date=as_of,
             method="local_files",
             file_report=report,
+            columns=columns,
+            calendar_years=calendar_years,
+            page_reported_total=reported_total,
+            last_updated=last_updated,
+            diagnostics=diagnostics,
         )
 
 
@@ -205,6 +261,7 @@ class NetworkSource:
         self.session = session
         self.strategy = strategy
         self.with_unit_prices = with_unit_prices
+        self._mpp = None   # 若列表頁走了 mpp 專用解析器，這裡保存其結果
 
     def _try_downloads(self, paths: list[str], columns: list[str]) -> tuple[list[dict], str | None]:
         for path in paths:
@@ -249,6 +306,13 @@ class NetworkSource:
         html = self.session.get_text(LIST_PAGE)
         sources = [f"{self.session.base_url}{LIST_PAGE}"]
         as_of = extract_as_of_date(html)
+
+        # 基金資訊表用專用解析器（表頭跨三列，通用的表頭驅動解析對不齊）
+        if looks_like_mpp_list(html):
+            mpp = parse_mpp_list(html)
+            log.info("列表頁以 mpp_list 專用解析器取得 %s 列", len(mpp.records))
+            self._mpp = mpp
+            return mpp.records, sources, (mpp.as_of_date or as_of)
 
         records: list[dict] = []
         for rows in tables_from_bytes(html.encode("utf-8"), "text/html", "list.html"):
@@ -314,12 +378,18 @@ class NetworkSource:
             except Exception as e:  # noqa: BLE001
                 log.warning("單位價格抓取失敗（不影響主檔）：%s", e)
 
+        mpp = self._mpp
         return FetchResult(
             funds=dedupe(records),
             unit_prices=dedupe(prices, keys=("trustee", "scheme_name", "fund_name", "price_date")),
             sources=sources,
             as_of_date=as_of,
             method=method,
+            columns=(mpp.columns if mpp else None),
+            calendar_years=(mpp.calendar_years if mpp else []),
+            page_reported_total=(mpp.reported_total if mpp else None),
+            last_updated=(mpp.last_updated if mpp else None),
+            diagnostics=({LIST_PAGE: mpp.diagnostics} if mpp else {}),
         )
 
 

@@ -1,0 +1,376 @@
+{
+  "data_as_of_date": "2026-09-30",
+  "scraped_at": "2026-11-04T11:39:04+00:00",
+  "source_urls": [
+    "local:mpp_list.html"
+  ],
+  "total_rows": 451,
+  "scrape_method": "local_files",
+  "unit_price_rows": 0,
+  "unit_price_source": null,
+  "columns": [
+    {
+      "field": "scheme_name",
+      "zh": "計劃",
+      "description": "強積金計劃名稱"
+    },
+    {
+      "field": "fund_name",
+      "zh": "成分基金",
+      "description": "成分基金名稱"
+    },
+    {
+      "field": "trustee",
+      "zh": "受託人",
+      "description": "受託人名稱"
+    },
+    {
+      "field": "fund_category",
+      "zh": "基金類別",
+      "description": "基金類別（含基金種類前綴，如「股票基金 - 亞洲股票基金」）"
+    },
+    {
+      "field": "launch_date",
+      "zh": "推出日期",
+      "description": "基金推出日期（ISO 8601）"
+    },
+    {
+      "field": "fund_size_hkd_million",
+      "zh": "基金規模（百萬港元）",
+      "description": "基金規模（百萬港元）"
+    },
+    {
+      "field": "risk_level",
+      "zh": "風險級別",
+      "description": "風險級別（整數 1-7）"
+    },
+    {
+      "field": "fer_pct",
+      "zh": "最近期基金開支比率",
+      "description": "最近期基金開支比率 FER（%）"
+    },
+    {
+      "field": "return_1y_annualised",
+      "zh": "年率化回報 一年期",
+      "description": "一年期年率化回報（% p.a.）"
+    },
+    {
+      "field": "return_5y_annualised",
+      "zh": "年率化回報 五年期",
+      "description": "五年期年率化回報（% p.a.）"
+    },
+    {
+      "field": "return_10y_annualised",
+      "zh": "年率化回報 十年期",
+      "description": "十年期年率化回報（% p.a.）"
+    },
+    {
+      "field": "return_since_launch_annualised",
+      "zh": "年率化回報 推出至今",
+      "description": "推出至今年率化回報（% p.a.）"
+    },
+    {
+      "field": "return_1y_cumulative",
+      "zh": "累積回報 一年期",
+      "description": "一年期累積回報（%）"
+    },
+    {
+      "field": "return_5y_cumulative",
+      "zh": "累積回報 五年期",
+      "description": "五年期累積回報（%）"
+    },
+    {
+      "field": "return_10y_cumulative",
+      "zh": "累積回報 十年期",
+      "description": "十年期累積回報（%）"
+    },
+    {
+      "field": "return_since_launch_cumulative",
+      "zh": "累積回報 推出至今",
+      "description": "推出至今累積回報（%）"
+    },
+    {
+      "field": "return_cy2025",
+      "zh": "曆年回報 2025",
+      "description": "2025 曆年回報（%）"
+    },
+    {
+      "field": "return_cy2024",
+      "zh": "曆年回報 2024",
+      "description": "2024 曆年回報（%）"
+    },
+    {
+      "field": "return_cy2023",
+      "zh": "曆年回報 2023",
+      "description": "2023 曆年回報（%）"
+    },
+    {
+      "field": "return_cy2022",
+      "zh": "曆年回報 2022",
+      "description": "2022 曆年回報（%）"
+    },
+    {
+      "field": "return_cy2021",
+      "zh": "曆年回報 2021",
+      "description": "2021 曆年回報（%）"
+    },
+    {
+      "field": "management_fee_raw",
+      "zh": "基金管理費（原文）",
+      "description": "基金管理費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "management_fee_pct",
+      "zh": "基金管理費（數值）",
+      "description": "基金管理費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    },
+    {
+      "field": "trustee_custodian_fee_raw",
+      "zh": "受託人費／保管人費（原文）",
+      "description": "基金管理費分項：受託人費／保管人費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "trustee_custodian_fee_pct",
+      "zh": "受託人費／保管人費（數值）",
+      "description": "基金管理費分項：受託人費／保管人費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    },
+    {
+      "field": "empf_platform_fee_raw",
+      "zh": "積金易平台費（原文）",
+      "description": "基金管理費分項：積金易平台費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "empf_platform_fee_pct",
+      "zh": "積金易平台費（數值）",
+      "description": "基金管理費分項：積金易平台費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    },
+    {
+      "field": "member_service_fee_raw",
+      "zh": "成員服務費（原文）",
+      "description": "基金管理費分項：成員服務費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "member_service_fee_pct",
+      "zh": "成員服務費（數值）",
+      "description": "基金管理費分項：成員服務費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    },
+    {
+      "field": "investment_management_fee_raw",
+      "zh": "投資管理費（原文）",
+      "description": "基金管理費分項：投資管理費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "investment_management_fee_pct",
+      "zh": "投資管理費（數值）",
+      "description": "基金管理費分項：投資管理費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    },
+    {
+      "field": "guarantee_fee_raw",
+      "zh": "保證費（原文）",
+      "description": "保證費（% p.a.） —— 平台原文，可能是「最高 X」或「X - Y」區間"
+    },
+    {
+      "field": "guarantee_fee_pct",
+      "zh": "保證費（數值）",
+      "description": "保證費（% p.a.） —— 解析出的數值：區間取上限、「最高 X」取 X"
+    }
+  ],
+  "calendar_years": [
+    2025,
+    2024,
+    2023,
+    2022,
+    2021
+  ],
+  "page_reported_total": 382,
+  "page_last_updated": "2026-10-12",
+  "null_convention": "平台的 \"n.a.\" 一律輸出為空值（CSV 空字串 / JSON null），絕不轉成 0",
+  "input_files": [
+    {
+      "file": "mpp_list.html",
+      "bytes": 2835650,
+      "parser": "mpp_list_html",
+      "tables": 1,
+      "kinds": [
+        "funds"
+      ],
+      "fund_rows": 451,
+      "unit_price_rows": 0,
+      "calendar_years": [
+        2025,
+        2024,
+        2023,
+        2022,
+        2021
+      ],
+      "page_reported_total": 382,
+      "page_as_of": "2026-09-30",
+      "page_last_updated": "2026-10-12"
+    }
+  ],
+  "parser_diagnostics": {
+    "mpp_list.html": {
+      "header_row_index": 1,
+      "data_row_cells": 30,
+      "data_rows_found": 451,
+      "annualised_cols": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "cumulative_cols": [
+        14,
+        15,
+        16,
+        17
+      ],
+      "calendar_cols": [
+        18,
+        19,
+        20,
+        21,
+        22
+      ],
+      "structural_empty_cols": [
+        0,
+        2,
+        29
+      ],
+      "column_map": {
+        "1": "scheme_name",
+        "3": "fund_name",
+        "4": "trustee",
+        "5": "fund_category",
+        "6": "launch_date",
+        "7": "fund_size_hkd_million",
+        "8": "risk_level",
+        "9": "fer_pct",
+        "10": "return_1y_annualised",
+        "11": "return_5y_annualised",
+        "12": "return_10y_annualised",
+        "13": "return_since_launch_annualised",
+        "14": "return_1y_cumulative",
+        "15": "return_5y_cumulative",
+        "16": "return_10y_cumulative",
+        "17": "return_since_launch_cumulative",
+        "18": "return_cy2025",
+        "19": "return_cy2024",
+        "20": "return_cy2023",
+        "21": "return_cy2022",
+        "22": "return_cy2021",
+        "23": "management_fee_raw",
+        "24": "trustee_custodian_fee_raw",
+        "25": "empf_platform_fee_raw",
+        "26": "member_service_fee_raw",
+        "27": "investment_management_fee_raw",
+        "28": "guarantee_fee_raw"
+      },
+      "fee_basis_counts": {
+        "management_fee": {
+          "max": 170,
+          "exact": 264,
+          "range": 17
+        },
+        "trustee_custodian_fee": {
+          "exact": 301,
+          "max": 135,
+          "range": 15
+        },
+        "empf_platform_fee": {
+          "exact": 451
+        },
+        "member_service_fee": {
+          "exact": 432,
+          "max": 18,
+          "range": 1
+        },
+        "investment_management_fee": {
+          "max": 70,
+          "exact": 362,
+          "range": 19
+        },
+        "guarantee_fee": {
+          "exact": 451
+        }
+      },
+      "page_reported_total": 382,
+      "page_as_of": "2026-09-30",
+      "page_last_updated": "2026-10-12"
+    }
+  },
+  "validation": {
+    "all_passed": true,
+    "checks": [
+      {
+        "check": "基金總行數",
+        "status": "WARN",
+        "detail": "實際 451 行，超出預期區間 350-420（頁面自報約 382） —— 偏離 +69。請確認來源頁是否完整、是否含非預期的額外列，或平台基金數目本身已變動",
+        "data": {
+          "actual": 451,
+          "min": 350,
+          "max": 420,
+          "expected_reference": 382
+        }
+      },
+      {
+        "check": "計劃數",
+        "status": "PASS",
+        "detail": "實際 24 個，預期約 24",
+        "data": {
+          "actual": 24,
+          "expected": 24
+        }
+      },
+      {
+        "check": "基金類別數（資訊）",
+        "status": "INFO",
+        "detail": "去重後 24 個不同的基金類別",
+        "data": {
+          "actual": 24
+        }
+      },
+      {
+        "check": "受託人數（資訊）",
+        "status": "INFO",
+        "detail": "去重後 11 個受託人",
+        "data": {
+          "actual": 11
+        }
+      },
+      {
+        "check": "空值率 最近期基金開支比率(fer_pct)",
+        "status": "PASS",
+        "detail": "空值率 1.1%（上限 20%）",
+        "data": {
+          "null_ratio": 0.0111,
+          "limit": 0.2
+        }
+      },
+      {
+        "check": "空值率 風險級別(risk_level)",
+        "status": "PASS",
+        "detail": "空值率 2.7%（上限 10%）",
+        "data": {
+          "null_ratio": 0.0266,
+          "limit": 0.1
+        }
+      },
+      {
+        "check": "風險級別範圍",
+        "status": "PASS",
+        "detail": "全部落在 1-7；分布 1:29, 2:3, 3:43, 4:146, 5:117, 6:96, 7:5, None:12"
+      },
+      {
+        "check": "n.a. 未被當成 0",
+        "status": "PASS",
+        "detail": "數值欄位的 0 值比例正常；n.a. 已保留為空值（費用欄位本就多為 0，已排除）"
+      },
+      {
+        "check": "費用欄位解析",
+        "status": "PASS",
+        "detail": "所有有原文的費用值都已解析出數值"
+      }
+    ]
+  }
+}

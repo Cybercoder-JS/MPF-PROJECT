@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""離線自我測試：不碰網路，驗證解析 / 正規化 / 輸出 / 驗證全鏈路。
+"""單元測試：欄位比對、值正規化、費用解析、輸出、驗證。不碰網路。
 
 執行： python tests/test_offline.py
 """
@@ -14,10 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from mpfa import pipeline, validate as V          # noqa: E402
-from mpfa.fields import FUND_COLUMNS              # noqa: E402
-from mpfa.normalize import parse_number, parse_int, parse_date, resolve_header  # noqa: E402
-from mpfa.parse import parse_html_tables          # noqa: E402
+from mpfa import pipeline, validate as V                       # noqa: E402
+from mpfa.fields import FUND_COLUMNS, fund_columns, zh_for     # noqa: E402
+from mpfa.normalize import (                                   # noqa: E402
+    clean_text, is_na, parse_date, parse_fee, parse_int, parse_number, resolve_header,
+)
+from mpfa.parse import extract_as_of_date, parse_csv           # noqa: E402
 
 failures: list[str] = []
 
@@ -28,71 +30,138 @@ def check(label: str, cond: bool, extra: str = "") -> None:
         failures.append(label)
 
 
-print("== 1. 欄位標題對應 ==")
-for raw, want in [("受託人", "trustee"), ("基金開支比率 (FER)\n(%)", "fer_pct"),
-                  ("風險級別", "risk_level"), ("基金規模（百萬港元）", "fund_size_hkd_million"),
-                  ("成立以來累積回報", "return_since_launch_cumulative")]:
-    check(f"{raw!r} -> {want}", resolve_header(raw) == want, f"得到 {resolve_header(raw)}")
+print("== 1. 欄位標題對應（頁面實際欄位名）==")
+for raw, want in [
+    ("計劃", "scheme_name"), ("成分基金", "fund_name"), ("受託人", "trustee"),
+    ("基金類別", "fund_category"), ("推出日期", "launch_date"),
+    ("基金規模 （百萬港元）", "fund_size_hkd_million"), ("風險級別", "risk_level"),
+    ("最近期基金 開支比率\n            (%)", "fer_pct"),
+    ("基金管理費 (% p.a.)", "management_fee_raw"),
+    ("受託人費／ 保管人費", "trustee_custodian_fee_raw"),
+    ("積金易平台費", "empf_platform_fee_raw"),
+    ("成員服務費", "member_service_fee_raw"),
+    ("投資管理費", "investment_management_fee_raw"),
+    ("保證費 (% p.a.)", "guarantee_fee_raw"),
+]:
+    got = resolve_header(raw)
+    check(f"{raw.strip()[:16]!r} -> {want}", got == want, f"得到 {got}")
+check("「受託人費／保管人費」不會被誤配成 trustee",
+      resolve_header("受託人費／ 保管人費") != "trustee")
 
-print("\n== 2. n.a. 必須是空值，真實的 0 必須保留 ==")
+print("\n== 2. n.a. 是空值，真實的 0 要保留 ==")
+for v in ("n.a.", "N.A.", "--", "不適用", "", None):
+    check(f"is_na({v!r})", is_na(v))
 check('parse_number("n.a.") is None', parse_number("n.a.") is None)
-check('parse_number("--") is None', parse_number("--") is None)
 check('parse_number("0.00") == 0.0', parse_number("0.00") == 0.0)
 check('parse_number("(1.30)") == -1.30', parse_number("(1.30)") == -1.30)
-check('parse_number("1,234.56") == 1234.56', parse_number("1,234.56") == 1234.56)
-check('parse_int("5.4") is None（不猜測四捨五入）', parse_int("5.4") is None)
-check('parse_date("01-12-2000") == 2000-12-01', parse_date("01-12-2000") == "2000-12-01")
+check('parse_number("12,730.70") == 12730.70', parse_number("12,730.70") == 12730.70)
+check('parse_int("5.4") is None（不猜四捨五入）', parse_int("5.4") is None)
+check('parse_date("10-07-2009") == 2009-07-10', parse_date("10-07-2009") == "2009-07-10")
 
-print("\n== 3. HTML 解析 ==")
-html = (ROOT / "tests/fixtures/sample_list.html").read_text(encoding="utf-8")
-recs = parse_html_tables(html, FUND_COLUMNS)
-check("解析出 3 筆（備註列被丟棄）", len(recs) == 3, f"得到 {len(recs)}")
-check("資料截止日期 = 2026-03-31", pipeline.extract_as_of_date(html) == "2026-03-31",
-      str(pipeline.extract_as_of_date(html)))
-cons = next(r for r in recs if r["fund_name"] == "強積金保守基金")
-check("保守基金 FER 為空值（n.a.）", cons["fer_pct"] is None)
-check("保守基金 1年回報為 0.0 而非空值", cons["return_1y_annualised"] == 0.0)
-check("保守基金 基金規模為空值", cons["fund_size_hkd_million"] is None)
-bond = next(r for r in recs if r["fund_name"] == "亞洲債券基金")
-check("債券基金 5年年率化回報 = -1.30（括號負數）", bond["return_5y_annualised"] == -1.30)
-check("債券基金 成立日期 = 2012-06-15", bond["launch_date"] == "2012-06-15")
+print("\n== 3. 原文保真（值不做 NFKC）==")
+check("全角「－」保留", clean_text("景順環球債券基金－單位類別H") == "景順環球債券基金－單位類別H")
+check("全角括號保留", clean_text("BCT（強積金）行業計劃") == "BCT（強積金）行業計劃")
+check("換行壓成空格", clean_text("示例受託人\n信託") == "示例受託人 信託")
 
-print("\n== 4. 輸出檔案 ==")
+print("\n== 4. 費用解析：原文 + 數值（區間取上限、「最高 X」取 X）==")
+for raw, want_raw, want_val, want_basis in [
+    ("最高 1.205", "最高 1.205", 1.205, "max"),
+    ("0.84 - 0.96", "0.84 - 0.96", 0.96, "range"),
+    ("0.96", "0.96", 0.96, "exact"),
+    ("0", "0", 0.0, "exact"),
+    ("n.a.", None, None, None),
+    ("", None, None, None),
+]:
+    r, v, b = parse_fee(raw)
+    check(f"parse_fee({raw!r}) -> ({want_raw!r}, {want_val}, {want_basis})",
+          r == want_raw and v == want_val and b == want_basis, f"得到 {(r, v, b)}")
+check("負數不被當成區間", parse_fee("-1.26")[1] == -1.26)
+check("看不懂的寫法：原文保留、數值留空", parse_fee("另行約定")[:2] == ("另行約定", None))
+
+print("\n== 5. 資料截止日期 ==")
+for t, want in [("最新資料截至2026年09月30日", "2026-09-30"),
+                ("<html><p>資料截至 30-09-2026</p></html>", "2026-09-30"),
+                ("As at 30 September 2026", "2026-09-30"),
+                ("沒有日期", None)]:
+    check(f"{t[:28]!r} -> {want}", extract_as_of_date(t) == want, str(extract_as_of_date(t)))
+
+print("\n== 6. 動態曆年回報欄位 ==")
+cols = fund_columns([2026, 2025, 2024])
+check("年份驅動欄位名", "return_cy2026" in cols and "return_cy2021" not in cols)
+check("曆年欄位中文名", zh_for("return_cy2026") == "曆年回報 2026")
+check("預設欄位共 33 個", len(FUND_COLUMNS) == 33, str(len(FUND_COLUMNS)))
+
+print("\n== 7. 通用 CSV 路徑（非 mpp 頁面時的回退）==")
+csvdata = ("計劃,成分基金,受託人,基金類別,推出日期,風險級別,最近期基金開支比率\n"
+           "甲計劃,甲基金,甲信託,股票基金 - 環球,01-12-2000,6,1.25\n"
+           "乙計劃,乙基金,乙信託,債券基金 - 環球,15-06-2012,n.a.,n.a.\n").encode()
+recs = parse_csv(csvdata)
+check("解析 2 筆", len(recs) == 2, str(len(recs)))
+check("風險級別 n.a. -> None", recs[1]["risk_level"] is None)
+check("FER n.a. -> None", recs[1]["fer_pct"] is None)
+check("日期轉 ISO", recs[0]["launch_date"] == "2000-12-01")
+
+print("\n== 8. 輸出：CSV 空字串 / JSON null ==")
+sample = [{c: None for c in FUND_COLUMNS} | {
+    "scheme_name": "甲計劃", "fund_name": "甲基金", "trustee": "甲信託",
+    "fund_category": "股票基金 - 環球", "launch_date": "2000-12-01",
+    "risk_level": 6, "fer_pct": 1.25, "return_1y_annualised": 0.0,
+    "management_fee_raw": "最高 0.68", "management_fee_pct": 0.68}]
 with tempfile.TemporaryDirectory() as td:
     out = Path(td)
-    pipeline.write_csv(recs, out / "funds_latest.csv", FUND_COLUMNS)
-    pipeline.write_json(recs, out / "funds_latest.json", FUND_COLUMNS)
-    meta = pipeline.write_metadata(out / "metadata.json", as_of_date="2026-03-31",
-                                   sources=["https://mfp.mpfa.org.hk/tch/mpp_list.jsp"],
-                                   row_count=len(recs), method="html_parse")
-    csv_text = (out / "funds_latest.csv").read_text(encoding="utf-8-sig")
-    check("CSV 有表頭與 3 行資料", len(csv_text.strip().splitlines()) == 4)
-    check('CSV 中 n.a. 寫成空字串而非 0', ",," in csv_text and ",0," not in csv_text.split("\n")[2])
-    jd = json.loads((out / "funds_latest.json").read_text(encoding="utf-8"))
-    check("JSON 中 n.a. 是 null", jd[1]["fer_pct"] is None)
-    check("JSON 中 0.00 是 0.0 不是 null", jd[1]["return_1y_annualised"] == 0.0)
-    check("metadata 記錄了截止日期/抓取時間/來源/行數",
-          all(meta.get(k) for k in ("data_as_of_date", "scraped_at", "source_urls", "total_rows")))
+    pipeline.write_csv(sample, out / "f.csv", FUND_COLUMNS)
+    pipeline.write_json(sample, out / "f.json", FUND_COLUMNS)
+    text = (out / "f.csv").read_text(encoding="utf-8-sig")
+    check("CSV 不含 'n.a.'", "n.a." not in text)
+    check("CSV 保留費用原文", "最高 0.68" in text)
+    jd = json.loads((out / "f.json").read_text(encoding="utf-8"))
+    check("JSON 空值為 null", jd[0]["return_10y_annualised"] is None)
+    check("JSON 真實 0.0 不是 null", jd[0]["return_1y_annualised"] == 0.0)
+    meta = pipeline.write_metadata(out / "m.json", as_of_date="2026-09-30",
+                                   sources=["local:x.html"], row_count=1,
+                                   method="local_files", columns=FUND_COLUMNS,
+                                   calendar_years=[2025], page_reported_total=382)
+    check("metadata 記錄截止日期/行數/頁面自報總數",
+          meta["data_as_of_date"] == "2026-09-30" and meta["total_rows"] == 1
+          and meta["page_reported_total"] == 382)
 
-print("\n== 5. 驗證模組 ==")
-bad = [dict(recs[0], risk_level=9), dict(recs[1], risk_level=0)]
-r = V.check_risk_level(recs + bad)
-check("風險級別越界會被抓出（9 與 0）", (not r.passed) and len(r.data) == 2, r.detail)
-check("正常資料的風險級別檢查通過", V.check_risk_level(recs).passed)
-zero_inflated = [dict(x, return_1y_annualised=0.0, fer_pct=0.0) for x in recs * 10]
-check("n.a. 被誤轉成 0 時會被抓出", not V.check_na_not_zero(zero_inflated).passed)
-# 真實分布：少數基金（如強積金保守基金）回報確實為 0.00，比例應遠低於門檻
-realistic = [dict(recs[0], return_1y_annualised=(0.0 if i % 20 == 0 else 1.5 + i * 0.01),
-                  fer_pct=1.0 + i * 0.001) for i in range(100)]
-check("正常分布（5% 的 0）不會誤報 n.a.-as-0", V.check_na_not_zero(realistic).passed)
-check("樣本過小時不做 0 值判斷（避免假警報）", V.check_na_not_zero(recs).passed)
-cnt = {c.name: c for c in V.check_counts(recs)}
-check("行數不足時回報漏抓", not cnt["基金總行數"].passed, cnt["基金總行數"].detail)
-check("計劃數不足時回報漏抓", not cnt["計劃數"].passed, cnt["計劃數"].detail)
-check("基金類別數為資訊項（不判定成敗）", cnt["基金類別數（資訊）"].informational)
-nr = V.null_ratios(recs)
-check("空值率計算正確（fer_pct 3 筆中 1 筆空）", abs(nr["fer_pct"]["null_ratio"] - 1/3) < 1e-4)
-check("抽樣輸出 3 筆（資料不足 5 筆時取全部）", len(V.sample_for_manual_check(recs, 5)) == 3)
+print("\n== 9. 驗證：行數用區間，超出報 WARN 而非 FAIL ==")
+mk = lambda n, s: [{c: None for c in FUND_COLUMNS} | {
+    "scheme_name": f"計劃{i % s}", "fund_name": f"基金{i}",
+    "fund_category": "股票基金 - 環球", "risk_level": 4,
+    "fer_pct": 1.0} for i in range(n)]
+by = lambda recs: {c.name: c for c in V.check_counts(recs)}
+check("382 行 -> PASS", by(mk(382, 24))["基金總行數"].level == V.PASS)
+check("350 行（下界）-> PASS", by(mk(350, 24))["基金總行數"].level == V.PASS)
+check("420 行（上界）-> PASS", by(mk(420, 24))["基金總行數"].level == V.PASS)
+c451 = by(mk(451, 24))["基金總行數"]
+check("451 行 -> WARN 且印出實際值", c451.level == V.WARN and "451" in c451.detail, c451.detail[:60])
+c300 = by(mk(300, 24))["基金總行數"]
+check("300 行 -> WARN 且印出實際值", c300.level == V.WARN and "300" in c300.detail)
+check("WARN 不讓 all_passed 變 False", V.run_all(mk(451, 24))["all_passed"])
+check("WARN 會進 warnings 清單", len(V.run_all(mk(451, 24))["warnings"]) >= 1)
+check("計劃數偏離 -> WARN", by(mk(382, 10))["計劃數"].level == V.WARN)
+check("基金類別數是 INFO", by(mk(382, 24))["基金類別數（資訊）"].level == V.INFO)
+
+print("\n== 10. 驗證：風險級別、n.a.-as-0、費用解析 ==")
+good = mk(382, 24)
+bad = [dict(good[0], risk_level=9), dict(good[1], risk_level=0)]
+r = V.check_risk_level(good + bad)
+check("風險級別越界 -> FAIL 且逐筆列出", r.level == V.FAIL and len(r.data) == 2, r.detail[:50])
+check("正常資料 -> PASS", V.check_risk_level(good).level == V.PASS)
+zero = [dict(x, return_1y_annualised=0.0) for x in good]
+check("n.a. 被誤轉成 0 -> FAIL", V.check_na_not_zero(zero).level == V.FAIL)
+realistic = [dict(x, return_1y_annualised=(0.0 if i % 20 == 0 else 1.5 + i * 0.01))
+             for i, x in enumerate(good)]
+check("正常分布（5% 的 0）-> PASS", V.check_na_not_zero(realistic).level == V.PASS)
+check("樣本過小時不做 0 值判斷", V.check_na_not_zero(good[:5]).level == V.PASS)
+unparsed = [dict(good[0], management_fee_raw="另行約定", management_fee_pct=None)]
+check("費用有原文無數值 -> WARN", V.check_fee_parsing(unparsed).level == V.WARN)
+check("費用正常 -> PASS",
+      V.check_fee_parsing([dict(good[0], management_fee_raw="0.68", management_fee_pct=0.68)]).level == V.PASS)
+nr = V.null_ratios(good)
+check("空值率計算", nr["return_10y_annualised"]["null_ratio"] == 1.0)
+check("抽樣 5 筆", len(V.sample_for_manual_check(good, 5)) == 5)
 
 print("\n" + "=" * 60)
 if failures:
