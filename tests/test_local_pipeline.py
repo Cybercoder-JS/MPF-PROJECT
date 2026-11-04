@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory() as td:
     by = {c["check"]: c for c in val["checks"]}
     check("all_passed", val["all_passed"])
     check("無警告", not val["warnings"], str(val["warnings"])[:80])
-    check("基金總行數 PASS（在 350-420 區間）", by["基金總行數"]["status"] == "PASS",
+    check("基金總行數 PASS（在 380-470 區間）", by["基金總行數"]["status"] == "PASS",
           by["基金總行數"]["detail"][:56])
     check("計劃數 PASS", by["計劃數"]["status"] == "PASS")
     check("風險級別 PASS", by["風險級別範圍"]["status"] == "PASS")

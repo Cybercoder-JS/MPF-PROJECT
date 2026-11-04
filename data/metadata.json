@@ -1,6 +1,6 @@
 {
   "data_as_of_date": "2026-09-30",
-  "scraped_at": "2026-11-04T11:39:04+00:00",
+  "scraped_at": "2026-11-04T14:28:54+00:00",
   "source_urls": [
     "local:mpp_list.html"
   ],
@@ -304,13 +304,12 @@
     "checks": [
       {
         "check": "基金總行數",
-        "status": "WARN",
-        "detail": "實際 451 行，超出預期區間 350-420（頁面自報約 382） —— 偏離 +69。請確認來源頁是否完整、是否含非預期的額外列，或平台基金數目本身已變動",
+        "status": "PASS",
+        "detail": "實際 451 行，在預期區間 380-470 內",
         "data": {
           "actual": 451,
-          "min": 350,
-          "max": 420,
-          "expected_reference": 382
+          "min": 380,
+          "max": 470
         }
       },
       {

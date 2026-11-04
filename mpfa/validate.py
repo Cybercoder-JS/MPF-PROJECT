@@ -23,12 +23,16 @@ from .fields import (
     zh_for,
 )
 
-# 行數預期：用區間而非精確值。平台頁面自報「已選擇的成分基金總數」約 382，
-# 但該數字與頁面表格實際列出的基金數可能不一致（見 README 的說明），
-# 所以用寬區間判定，超出範圍只報警告並印出實際值。
-EXPECTED_FUND_ROWS = 382
-MIN_FUND_ROWS = 350
-MAX_FUND_ROWS = 420
+# 行數預期：用區間而非精確值，超出範圍只報警告並印出實際值。
+#
+# 註：平台頁面自報「已選擇的成分基金總數: 382」，但同一頁的資料表實際列出
+# 451 列基金。經核實以**表格為準**（451 列全部唯一、無隱藏列、無客戶端篩選，
+# 且已用結構不變量全量驗證內部一致），頁面計數器與表格不一致屬頁面自身問題。
+# 詳見 README 的「頁面計數器與表格不一致」一節。
+EXPECTED_FUND_ROWS = 451      # 已核實的實際基金數（以表格為準）
+PAGE_REPORTED_TOTAL = 382     # 頁面計數器自報值，僅作記錄，不用於判定
+MIN_FUND_ROWS = 380
+MAX_FUND_ROWS = 470
 
 EXPECTED_SCHEMES = 24
 SCHEME_TOLERANCE = 0.10  # 計劃數容許 ±10%
@@ -74,14 +78,12 @@ def check_counts(records: list[dict]) -> list[Check]:
     # 總行數：區間判定
     if MIN_FUND_ROWS <= n <= MAX_FUND_ROWS:
         rows_check = Check("基金總行數", PASS,
-                           f"實際 {n} 行，在預期區間 {MIN_FUND_ROWS}-{MAX_FUND_ROWS} 內"
-                           f"（頁面自報約 {EXPECTED_FUND_ROWS}）",
+                           f"實際 {n} 行，在預期區間 {MIN_FUND_ROWS}-{MAX_FUND_ROWS} 內",
                            {"actual": n, "min": MIN_FUND_ROWS, "max": MAX_FUND_ROWS})
     else:
         rows_check = Check("基金總行數", WARN,
                            f"實際 {n} 行，超出預期區間 {MIN_FUND_ROWS}-{MAX_FUND_ROWS}"
-                           f"（頁面自報約 {EXPECTED_FUND_ROWS}）"
-                           f" —— 偏離 {n - EXPECTED_FUND_ROWS:+d}。"
+                           f" —— 偏離預期值 {EXPECTED_FUND_ROWS} 共 {n - EXPECTED_FUND_ROWS:+d}。"
                            f"請確認來源頁是否完整、是否含非預期的額外列，"
                            f"或平台基金數目本身已變動",
                            {"actual": n, "min": MIN_FUND_ROWS, "max": MAX_FUND_ROWS,

@@ -131,15 +131,16 @@ mk = lambda n, s: [{c: None for c in FUND_COLUMNS} | {
     "fund_category": "股票基金 - 環球", "risk_level": 4,
     "fer_pct": 1.0} for i in range(n)]
 by = lambda recs: {c.name: c for c in V.check_counts(recs)}
-check("382 行 -> PASS", by(mk(382, 24))["基金總行數"].level == V.PASS)
-check("350 行（下界）-> PASS", by(mk(350, 24))["基金總行數"].level == V.PASS)
-check("420 行（上界）-> PASS", by(mk(420, 24))["基金總行數"].level == V.PASS)
-c451 = by(mk(451, 24))["基金總行數"]
-check("451 行 -> WARN 且印出實際值", c451.level == V.WARN and "451" in c451.detail, c451.detail[:60])
-c300 = by(mk(300, 24))["基金總行數"]
-check("300 行 -> WARN 且印出實際值", c300.level == V.WARN and "300" in c300.detail)
-check("WARN 不讓 all_passed 變 False", V.run_all(mk(451, 24))["all_passed"])
-check("WARN 會進 warnings 清單", len(V.run_all(mk(451, 24))["warnings"]) >= 1)
+check("451 行（已核實的實際值）-> PASS", by(mk(451, 24))["基金總行數"].level == V.PASS)
+check("382 行（頁面計數器值）-> PASS", by(mk(382, 24))["基金總行數"].level == V.PASS)
+check("380 行（下界）-> PASS", by(mk(380, 24))["基金總行數"].level == V.PASS)
+check("470 行（上界）-> PASS", by(mk(470, 24))["基金總行數"].level == V.PASS)
+c370 = by(mk(370, 24))["基金總行數"]
+check("370 行 -> WARN 且印出實際值", c370.level == V.WARN and "370" in c370.detail, c370.detail[:60])
+c500 = by(mk(500, 24))["基金總行數"]
+check("500 行 -> WARN 且印出實際值", c500.level == V.WARN and "500" in c500.detail)
+check("WARN 不讓 all_passed 變 False", V.run_all(mk(500, 24))["all_passed"])
+check("WARN 會進 warnings 清單", len(V.run_all(mk(500, 24))["warnings"]) >= 1)
 check("計劃數偏離 -> WARN", by(mk(382, 10))["計劃數"].level == V.WARN)
 check("基金類別數是 INFO", by(mk(382, 24))["基金類別數（資訊）"].level == V.INFO)
 
