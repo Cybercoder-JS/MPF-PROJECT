@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>费用终身成本计算器 — 强积金基金数据工具</title>
+<meta name="description" content="用月度复利估算强积金基金开支比率（FER）差距到 65 岁时的累积金额差额。资料仅供参考，不构成任何投资建议。">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html">强积金基金数据工具</a>
+    <nav>
+      <a href="index.html">首页</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+<header class="hero">
+  <h1>费用终身成本计算器</h1>
+  <p class="lede">同样的供款、同样的市场回报，只有基金开支比率（FER）不同，到 65 岁时累积金额会差多少？下面的数字全部在你的浏览器里算，不会上传。</p>
+</header>
+
+<main>
+
+  <form id="calc" novalidate>
+    <div class="card">
+      <div class="inline-2">
+        <div class="field">
+          <label for="age">当前年龄</label>
+          <input type="number" id="age" inputmode="numeric" min="18" max="64" step="1" value="35">
+        </div>
+        <div class="field">
+          <label for="salary">月薪（港元）</label>
+          <input type="number" id="salary" inputmode="numeric" min="0" max="999999" step="100" value="30000">
+        </div>
+      </div>
+      <p class="hint" style="margin-top:-6px">月薪按强积金有关收入上下限处理：上限 30,000 港元，超出部分不计供款；低于 7,100 港元时雇员免供、雇主仍供 5%。<a href="#assumptions">假设说明</a></p>
+
+      <div class="field" id="picker-wrap" hidden>
+        <label for="picker">（可选）从 451 只基金里选一只，自动填入 FER</label>
+        <select id="picker">
+          <option value="">— 手动输入 FER —</option>
+        </select>
+        <span class="hint">选中后把该基金的 FER 填进下面「当前基金」一栏；基金名称保留数据来源的繁体原文。</span>
+      </div>
+
+      <div class="inline-2">
+        <div class="field">
+          <label for="ferA">当前基金 FER（%）</label>
+          <input type="number" id="ferA" inputmode="decimal" min="0" max="10" step="0.01" value="1.60">
+        </div>
+        <div class="field">
+          <label for="ferB">对比基金 FER（%）</label>
+          <input type="number" id="ferB" inputmode="decimal" min="0" max="10" step="0.01" value="0.80">
+        </div>
+      </div>
+      <p class="hint" style="margin-top:-6px">数据中 446 只基金的 FER 介于 0.54% 至 2.88%，中位数 1.23%。</p>
+
+      <div class="field">
+        <label for="ret">预期年化回报率（%，扣除基金开支前）</label>
+        <div class="range-row">
+          <input type="range" id="ret" min="0" max="12" step="0.1" value="5">
+          <output for="ret" id="retOut">5.0%</output>
+        </div>
+        <span class="hint">默认 5%。这是一个假设值，不是任何基金的预期回报；两只基金都套用同一个毛回报率，差异只来自 FER。</span>
+      </div>
+
+      <button type="reset">重设</button>
+    </div>
+  </form>
+
+  <div class="result" id="result" aria-live="polite">
+    <p class="headline-label" id="headline-label">到 65 岁时的累积金额差额</p>
+    <p class="bignum" id="bigDiff"><span class="unit">HK$</span>—</p>
+    <p class="sub" id="diffSub">—</p>
+    <p class="bigratio" id="bigRatio">—</p>
+    <p class="sub" id="ratioSub">—</p>
+  </div>
+
+  <section>
+    <h2>明细</h2>
+    <div class="card">
+      <table class="breakdown">
+        <thead>
+          <tr><th>项目</th><th>当前基金</th><th>对比基金</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>基金开支比率（FER）</td><td id="tFerA">—</td><td id="tFerB">—</td></tr>
+          <tr><td>净年化回报（毛回报 − FER）</td><td id="tNetA">—</td><td id="tNetB">—</td></tr>
+          <tr><td>月利率（净年化折算）</td><td id="tRateA">—</td><td id="tRateB">—</td></tr>
+          <tr class="total"><td>65 岁累积金额</td><td id="tBalA">—</td><td id="tBalB">—</td></tr>
+        </tbody>
+      </table>
+      <table class="breakdown" style="margin-top:14px">
+        <tbody>
+          <tr><td>供款年期</td><td id="tYears">—</td></tr>
+          <tr><td>月供款（雇员 + 雇主）</td><td id="tContrib">—</td></tr>
+          <tr><td>累计供款本金</td><td id="tTotalContrib">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <details id="assumptions">
+    <summary>计算方法与全部假设</summary>
+    <ol>
+      <li><strong>供款：</strong>雇员、雇主各按有关收入的 5% 作强制性供款。有关收入上限为月薪 <code>30,000</code> 港元（每方每月供款上限 1,500 港元）；下限为月薪 <code>7,100</code> 港元，低于此数雇员无须供款、雇主仍须供 5%。这三个数字是<strong>法定参数</strong>，不存在于 <code>data/funds_latest.json</code> 数据集中（该数据集只有基金层面的费用与回报字段），因此在代码里写死，法例修订时需同步更新。自愿性供款、特别自愿性供款不在模型内。</li>
+      <li><strong>年期：</strong>退休年龄固定 65 岁，供款月数 =（65 − 当前年龄）× 12。</li>
+      <li><strong>复利：</strong>月度复利。净年化回报 = 预期年化回报率 − FER；月利率 <code>i = (1 + 净年化)^(1/12) − 1</code>，即 12 个月复利后恰好等于净年化。</li>
+      <li><strong>供款时点：</strong>供款在每月月末投入（普通年金），逐月迭代 <code>余额 = 余额 × (1 + i) + 月供款</code>；对应闭式解 <code>FV = C × ((1+i)^n − 1) / i</code>。</li>
+      <li><strong>FER 的用法：</strong>把 FER 整体当作对年化回报的扣减。实际上 FER 是按资产净值收取、且本身每年会变；这里假设全程不变。</li>
+      <li><strong>不包含：</strong>现有累算权益（起始余额按 0 计）、薪金增长、通胀、基金转换的时间差与价格波动、回报率的年度波动、受托人可能收取的其他费用。</li>
+      <li><strong>因此：</strong>输出是在上述假设下的数学推算，用来比较「同样条件下费率差距的量级」，不是对任何基金未来金额的预测。</li>
+    </ol>
+    <p style="font-size:13px;color:var(--ink-faint);margin:8px 0 0">计算核心在 <code>site/assets/fee-math.js</code>，含 3 组手算验证用例的测试在 <code>site/tests/fee-math.test.js</code>（<code>node site/tests/fee-math.test.js</code>）。</p>
+  </details>
+
+  <div class="notice">
+    <p>本页只呈现数学结果。费率高低并非选择基金的唯一考虑，基金种类、资产配置、风险级别、保证条款与个人情况同样会影响结果，本站不就任何基金或计划作出任何意见。</p>
+  </div>
+
+</main>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p class="disclaimer"><strong>免责声明：</strong>本网站所载资料仅供参考，不构成任何投资建议，亦不构成任何基金、计划或受托人的招揽、要约或意见。数据来源为积金局强积金基金平台，截至 2026-09-30。计算结果为基于使用者自行输入的假设所作的数学推算，不代表任何实际或预期的投资回报。强积金投资涉及风险，过往业绩并不预示将来表现。作出任何强积金安排前，请自行查阅受托人发出的最新计划文件，并在需要时咨询独立持牌专业人士。</p>
+    <p class="fineprint">纯静态页面，全部计算在浏览器内完成，不收集、不上传、不存储任何输入数据。</p>
+  </div>
+</footer>
+
+<script src="assets/fee-math.js"></script>
+<script>
+(function () {
+  'use strict';
+  var M = window.MpfFeeMath;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var els = {
+    age: $('age'), salary: $('salary'), ferA: $('ferA'), ferB: $('ferB'),
+    ret: $('ret'), retOut: $('retOut'),
+    result: $('result'), headlineLabel: $('headline-label'),
+    bigDiff: $('bigDiff'), diffSub: $('diffSub'), bigRatio: $('bigRatio'), ratioSub: $('ratioSub')
+  };
+
+  var money0 = new Intl.NumberFormat('zh-Hans-CN', { maximumFractionDigits: 0 });
+  var num2 = new Intl.NumberFormat('zh-Hans-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function pct(x, digits) { return num2.format(x) + '%'; }
+
+  function readNumber(el, fallback, min, max) {
+    var v = parseFloat(el.value);
+    if (!isFinite(v)) { el.classList.add('bad'); return null; }
+    if (v < min || v > max) { el.classList.add('bad'); return null; }
+    el.classList.remove('bad');
+    return v;
+  }
+
+  function setText(id, text) { $(id).textContent = text; }
+
+  function blank() {
+    els.bigDiff.innerHTML = '<span class="unit">HK$</span>—';
+    els.bigRatio.textContent = '—';
+    els.diffSub.textContent = '请检查上面标红的输入。';
+    els.ratioSub.textContent = '';
+    ['tFerA','tFerB','tNetA','tNetB','tRateA','tRateB','tBalA','tBalB','tYears','tContrib','tTotalContrib']
+      .forEach(function (id) { setText(id, '—'); });
+  }
+
+  function render() {
+    els.retOut.textContent = parseFloat(els.ret.value).toFixed(1) + '%';
+
+    var age = readNumber(els.age, 35, 15, 64);
+    var salary = readNumber(els.salary, 30000, 0, 999999);
+    var ferA = readNumber(els.ferA, 1.6, 0, 10);
+    var ferB = readNumber(els.ferB, 0.8, 0, 10);
+    var ret = parseFloat(els.ret.value);
+    if (age === null || salary === null || ferA === null || ferB === null) { blank(); return; }
+
+    var r = M.compare({
+      currentAge: age, monthlySalary: salary,
+      ferCurrentPct: ferA, ferAlternativePct: ferB, annualReturnPct: ret
+    });
+
+    // 大字：差额
+    els.bigDiff.innerHTML = '<span class="unit">HK$</span>' + money0.format(Math.round(r.absDifference));
+
+    var sign;
+    if (r.absDifference < 0.5) {
+      sign = 'neutral';
+      els.headlineLabel.textContent = '到 65 岁时的累积金额差额';
+      els.diffSub.textContent = '两只基金的 FER 相同，在本模型下没有差额。';
+    } else if (r.difference > 0) {
+      sign = 'positive';
+      els.headlineLabel.textContent = '到 65 岁时，对比基金（FER 较低）的累积金额比当前基金多';
+      els.diffSub.textContent = '当前基金 FER ' + pct(ferA) + '，对比基金 FER ' + pct(ferB) +
+        '，费率相差 ' + pct(Math.abs(ferA - ferB)) + '；其余条件相同。';
+    } else {
+      sign = 'negative';
+      els.headlineLabel.textContent = '到 65 岁时，对比基金（FER 较高）的累积金额比当前基金少';
+      els.diffSub.textContent = '当前基金 FER ' + pct(ferA) + '，对比基金 FER ' + pct(ferB) +
+        '，费率相差 ' + pct(Math.abs(ferA - ferB)) + '；其余条件相同。';
+    }
+    els.result.className = 'result ' + (sign === 'negative' ? 'negative' : 'neutral');
+
+    // 大字：比例
+    els.bigRatio.textContent = num2.format(r.ratioPct) + '%';
+    els.ratioSub.textContent = r.higherBalance > 0
+      ? '差额占两者中较高累积金额（HK$' + money0.format(Math.round(r.higherBalance)) + '）的比例。'
+      : '当前年龄已达 65 岁，无剩余供款年期。';
+
+    // 明细
+    setText('tFerA', pct(ferA));
+    setText('tFerB', pct(ferB));
+    setText('tNetA', num2.format(r.current.netAnnualPct) + '%');
+    setText('tNetB', num2.format(r.alternative.netAnnualPct) + '%');
+    setText('tRateA', (r.current.monthlyRate * 100).toFixed(4) + '%');
+    setText('tRateB', (r.alternative.monthlyRate * 100).toFixed(4) + '%');
+    setText('tBalA', 'HK$' + money0.format(Math.round(r.current.balance)));
+    setText('tBalB', 'HK$' + money0.format(Math.round(r.alternative.balance)));
+    setText('tYears', r.years.toFixed(0) + ' 年（' + r.months + ' 个月）');
+    var c = r.contribution;
+    setText('tContrib', 'HK$' + money0.format(c.total) +
+      '（雇员 ' + money0.format(c.employee) + ' + 雇主 ' + money0.format(c.employer) + '）' +
+      (c.capped ? '，已按有关收入上限 30,000 封顶' : (c.belowFloor ? '，月薪低于下限，雇员免供' : '')));
+    setText('tTotalContrib', 'HK$' + money0.format(Math.round(r.totalContributed)));
+  }
+
+  ['age','salary','ferA','ferB','ret'].forEach(function (id) {
+    $(id).addEventListener('input', render);
+  });
+  $('calc').addEventListener('reset', function () { setTimeout(render, 0); });
+  $('calc').addEventListener('submit', function (e) { e.preventDefault(); render(); });
+
+  render();
+
+  // 可选：基金选择器。读同目录 JSON；取不到（例如用 file:// 直接打开）就静默保持隐藏，
+  // 手动输入 FER 的主流程不受影响。
+  if (window.fetch) {
+    fetch('data/funds.min.json').then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function (data) {
+      var sel = $('picker');
+      var bySchemeFrag = document.createDocumentFragment();
+      var groups = {};
+      data.rows.forEach(function (row) {
+        if (!groups[row.s]) {
+          groups[row.s] = document.createElement('optgroup');
+          groups[row.s].label = row.s;
+          bySchemeFrag.appendChild(groups[row.s]);
+        }
+        var opt = document.createElement('option');
+        opt.value = String(row.fer);
+        opt.textContent = row.f + '（FER ' + row.fer.toFixed(2) + '%）';
+        groups[row.s].appendChild(opt);
+      });
+      sel.appendChild(bySchemeFrag);
+      sel.addEventListener('change', function () {
+        if (!sel.value) return;
+        els.ferA.value = parseFloat(sel.value).toFixed(2);
+        render();
+      });
+      $('picker-wrap').hidden = false;
+    }).catch(function () { /* 静默降级：保持手动输入 */ });
+  }
+})();
+</script>
+
+</body>
+</html>
