@@ -549,6 +549,54 @@ class Builder:
         size_yi = to_yi(f["fund_size_hkd_million"])
         size_extra = f"（约 {size_yi:,.2f} 亿港元）" if size_yi is not None else ""
 
+        fee_spec_bits = []
+        if f["fer_pct"] is not None:
+            fee_spec_bits.append(f"基金开支比率（FER）{plain(f['fer_pct'], 4, '%')}")
+        if f.get("management_fee_raw"):
+            fee_spec_bits.append(f"基金管理费原文：{f['management_fee_raw']}")
+
+        # 结构化数据只收录有值的字段：null 对消费端没有意义，且会被当成脏数据。
+        props = [
+            {
+                "@type": "PropertyValue",
+                "name": LABELS["fer_pct"],
+                "value": f["fer_pct"],
+                "unitText": "PERCENT",
+            },
+            {
+                "@type": "PropertyValue",
+                "name": LABELS["risk_level"],
+                "value": f["risk_level"],
+                "minValue": 1,
+                "maxValue": 7,
+            },
+            {
+                "@type": "PropertyValue",
+                "name": LABELS["fund_size_hkd_million"],
+                "value": f["fund_size_hkd_million"],
+                "unitText": "HKD million",
+            },
+            {
+                "@type": "PropertyValue",
+                "name": LABELS["launch_date"],
+                "value": f["launch_date"],
+            },
+        ] + [
+            {
+                "@type": "PropertyValue",
+                "name": LABELS[k],
+                "value": f[k],
+                "unitText": "PERCENT",
+            }
+            for k in (
+                "return_1y_annualised",
+                "return_5y_annualised",
+                "return_10y_annualised",
+                "return_since_launch_annualised",
+            )
+        ]
+        props = [pv for pv in props if pv.get("value") is not None]
+
         fund_ld = {
             "@type": ["InvestmentFund", "FinancialProduct"],
             "@id": self.abs_url(filename) + "#fund",
@@ -558,52 +606,10 @@ class Builder:
             "inLanguage": "zh-Hant",
             "provider": {"@type": "Organization", "name": trustee},
             "isRelatedTo": {"@type": "Product", "name": scheme},
-            "feesAndCommissionsSpecification": (
-                f"基金开支比率（FER）{plain(f['fer_pct'], 4, '%')}；"
-                f"基金管理费原文：{f.get('management_fee_raw') or '不适用'}"
-            ),
-            "additionalProperty": [
-                {
-                    "@type": "PropertyValue",
-                    "name": LABELS["fer_pct"],
-                    "value": f["fer_pct"],
-                    "unitText": "PERCENT",
-                },
-                {
-                    "@type": "PropertyValue",
-                    "name": LABELS["risk_level"],
-                    "value": f["risk_level"],
-                    "minValue": 1,
-                    "maxValue": 7,
-                },
-                {
-                    "@type": "PropertyValue",
-                    "name": LABELS["fund_size_hkd_million"],
-                    "value": f["fund_size_hkd_million"],
-                    "unitText": "HKD million",
-                },
-                {
-                    "@type": "PropertyValue",
-                    "name": LABELS["launch_date"],
-                    "value": f["launch_date"],
-                },
-            ]
-            + [
-                {
-                    "@type": "PropertyValue",
-                    "name": LABELS[k],
-                    "value": f[k],
-                    "unitText": "PERCENT",
-                }
-                for k in (
-                    "return_1y_annualised",
-                    "return_5y_annualised",
-                    "return_10y_annualised",
-                    "return_since_launch_annualised",
-                )
-                if f[k] is not None
-            ],
+            "additionalProperty": props,
         }
+        if fee_spec_bits:
+            fund_ld["feesAndCommissionsSpecification"] = "；".join(fee_spec_bits)
         page_ld = {
             "@type": "WebPage",
             "@id": self.abs_url(filename),
