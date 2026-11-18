@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://cybercoder-js.github.io/MPF-PROJECT/sitemap.xml

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""由 data/funds_latest.json 批量生成 site/funds/ 下的静态页面。
+"""由 data/funds_latest.json 批量生成 docs/funds/ 下的静态页面。
 
 生成内容
 --------
-* 每只成分基金一页           site/funds/{计划slug}-{基金slug}.html
-* 每个基金类别一张汇总表     site/funds/category-{slug}.html
-* 每个计划一张汇总表         site/funds/scheme-{slug}.html
-* 每个受托人一张汇总表       site/funds/trustee-{slug}.html
-* 全部基金总表（搜索/筛选）  site/funds/index.html
-* 站点地图                   site/funds/sitemap.xml
-* 共享样式与脚本             site/funds/assets/{style.css,app.js}
+* 每只成分基金一页           docs/funds/{计划slug}-{基金slug}.html
+* 每个基金类别一张汇总表     docs/funds/category-{slug}.html
+* 每个计划一张汇总表         docs/funds/scheme-{slug}.html
+* 每个受托人一张汇总表       docs/funds/trustee-{slug}.html
+* 全部基金总表（搜索/筛选）  docs/funds/index.html
+* 站点地图（覆盖全站）       docs/sitemap.xml
+* 共享样式与脚本             docs/funds/assets/{style.css,app.js}
 
 说明
 ----
@@ -24,8 +24,10 @@
 ----
     python scripts/build_pages.py [--base-url https://your-domain.example]
 
---base-url 用于 <link rel=canonical>、og:url 与 sitemap.xml 的绝对网址，
-部署前请换成真实域名后重新生成。
+--base-url 用于 <link rel=canonical>、og:url 与 sitemap.xml 的绝对网址。
+站点部署在 GitHub Pages 的子路径下（.../MPF-PROJECT/），因此页面之间、
+以及对 CSS／JS／JSON 的引用一律使用相对路径，绝不以 / 开头；只有
+canonical、og:url 与 sitemap.xml 里才出现绝对网址。
 """
 
 from __future__ import annotations
@@ -45,10 +47,11 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parent.parent
 DATA_JSON = ROOT / "data" / "funds_latest.json"
 META_JSON = ROOT / "data" / "metadata.json"
-OUT_DIR = ROOT / "site" / "funds"
+SITE_DIR = ROOT / "docs"          # GitHub Pages 的发布根目录
+OUT_DIR = SITE_DIR / "funds"
 ASSET_DIR = OUT_DIR / "assets"
 
-DEFAULT_BASE_URL = "https://example.com"
+DEFAULT_BASE_URL = "https://cybercoder-js.github.io/MPF-PROJECT"
 SITE_NAME = "强积金成分基金资料库"
 SITE_ROOT_PATH = "/funds/"
 
@@ -257,7 +260,18 @@ class Builder:
     # -- 网址
 
     def abs_url(self, filename: str) -> str:
+        """把 funds/ 目录内的相对链接换成绝对网址。
+
+        以 ``../`` 开头的链接指向站点根（即 docs/），例如 ``../index.html``
+        与 ``../guides/``；其余一律视为 funds/ 目录内的文件名。
+        """
+        if filename.startswith("../"):
+            return self.site_url(filename[3:])
         return f"{self.base}{SITE_ROOT_PATH}{quote(filename)}"
+
+    def site_url(self, path: str) -> str:
+        """站点根（docs/）下某个路径的绝对网址。"""
+        return f"{self.base}/{quote(path.lstrip('/'))}"
 
     # -- 公共片段
 
@@ -334,7 +348,7 @@ class Builder:
 <dt>本页生成时间</dt><dd><time datetime="{e(self.generated_at)}">{e(self.generated_at[:10])}</time></dd>
 </dl>
 <p class="disclaimer"><strong>免责声明：</strong>{e(DISCLAIMER)}</p>
-<p class="foot-nav"><a href="index.html">全部基金总表</a></p>
+<p class="foot-nav"><a href="../index.html">返回首页</a> · <a href="index.html">全部基金总表</a> · <a href="../fee-calculator.html">费用计算器</a> · <a href="../guides/index.html">强积金科普指南</a></p>
 </footer>
 <script src="assets/app.js" defer></script>
 </body>
@@ -474,6 +488,7 @@ class Builder:
         )
 
         trail = [
+            ("首页", "../index.html"),
             ("全部基金", "index.html"),
             (trustee, f"trustee-{slugify(trustee)}.html"),
             (scheme, f"scheme-{slugify(scheme)}.html"),
@@ -769,7 +784,7 @@ class Builder:
             f"表格可按列排序，数据截止 {self.as_of}。"
         )
 
-        trail = [("全部基金", "index.html"), (value, None)]
+        trail = [("首页", "../index.html"), ("全部基金", "index.html"), (value, None)]
 
         stat_cards = f"""<section class="cards" aria-label="汇总统计">
 <div class="card"><span class="k">收录基金</span><span class="v">{len(rows)}<small> 只</small></span></div>
@@ -927,7 +942,7 @@ class Builder:
             f"FER 中位数 {plain(statistics.median(fers) if fers else None, 2, '%')}。"
             f"数据截止 {self.as_of}。"
         )
-        trail = [("全部基金", None)]
+        trail = [("首页", "../index.html"), ("全部基金", None)]
 
         def group_nav(mapping: dict[str, list[dict]], prefix: str, heading: str, hid: str) -> str:
             items = "".join(
@@ -1020,21 +1035,47 @@ class Builder:
 
     # ------------------------------------------------------------ sitemap
 
-    def sitemap(self) -> None:
+    def site_pages(self) -> list[tuple[str, float]]:
+        """funds/ 以外、同样要进 sitemap 的站点页面（相对 docs/ 的路径）。
+
+        首页与费用计算器写死；docs/guides/ 下的页面按文件扫描，
+        新增科普页后无须改动本脚本。
+        """
+        out: list[tuple[str, float]] = []
+        for name, prio in (("index.html", 1.0), ("fee-calculator.html", 0.9)):
+            if (SITE_DIR / name).exists():
+                out.append((name, prio))
+        guides = SITE_DIR / "guides"
+        if guides.is_dir():
+            for f in sorted(guides.glob("*.html")):
+                out.append((f"guides/{f.name}", 0.8 if f.name == "index.html" else 0.7))
+        return out
+
+    def sitemap(self) -> int:
+        """生成 docs/sitemap.xml —— 覆盖全站，而不只是 funds/。"""
+        entries: list[tuple[str, str, float]] = [
+            (self.site_url(path), self.page_updated, prio)
+            for path, prio in self.site_pages()
+        ]
+        entries += [
+            (self.abs_url(filename), lastmod, priority)
+            for filename, lastmod, priority in self.pages
+        ]
         parts = [
             '<?xml version="1.0" encoding="UTF-8"?>',
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
         ]
-        for filename, lastmod, priority in sorted(self.pages, key=lambda p: -p[2]):
+        for loc, lastmod, priority in sorted(entries, key=lambda x: (-x[2], x[0])):
             parts.append("  <url>")
-            parts.append(f"    <loc>{html.escape(self.abs_url(filename))}</loc>")
+            parts.append(f"    <loc>{html.escape(loc)}</loc>")
             if lastmod:
                 parts.append(f"    <lastmod>{html.escape(lastmod)}</lastmod>")
             parts.append("    <changefreq>monthly</changefreq>")
             parts.append(f"    <priority>{priority:.1f}</priority>")
             parts.append("  </url>")
         parts.append("</urlset>")
-        (OUT_DIR / "sitemap.xml").write_text("\n".join(parts) + "\n", encoding="utf-8")
+        (SITE_DIR / "sitemap.xml").write_text("\n".join(parts) + "\n", encoding="utf-8")
+        return len(entries)
 
 
 # ---------------------------------------------------------------- 静态资源
@@ -1274,7 +1315,7 @@ APP_JS = """/* 强积金成分基金资料库 — 表格排序与筛选（原生
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="生成 site/funds/ 下的静态基金页面")
+    ap = argparse.ArgumentParser(description="生成 docs/funds/ 下的静态基金页面")
     ap.add_argument(
         "--base-url",
         default=DEFAULT_BASE_URL,
@@ -1283,7 +1324,7 @@ def main() -> int:
     ap.add_argument(
         "--clean",
         action="store_true",
-        help="生成前先清空 site/funds/",
+        help="生成前先清空 docs/funds/",
     )
     args = ap.parse_args()
 
@@ -1365,7 +1406,7 @@ def main() -> int:
         )
 
     b.index_page(groups, schemes, trustees)
-    b.sitemap()
+    sitemap_urls = b.sitemap()
     (ASSET_DIR / "style.css").write_text(STYLE_CSS, encoding="utf-8")
     (ASSET_DIR / "app.js").write_text(APP_JS, encoding="utf-8")
 
@@ -1375,9 +1416,9 @@ def main() -> int:
     print(f"受托人汇总页: {len(trustees)}")
     print(f"总表页     : 1")
     print(f"HTML 合计  : {len(b.pages)}")
-    print(f"sitemap    : {len(b.pages)} 条 URL -> {OUT_DIR / 'sitemap.xml'}")
+    print(f"sitemap    : {sitemap_urls} 条 URL -> {SITE_DIR / 'sitemap.xml'}")
     print(f"base-url   : {b.base}")
-    if b.base == DEFAULT_BASE_URL:
+    if "example.com" in b.base:
         print("提示：canonical / sitemap 仍使用占位域名，部署前请用 --base-url 重新生成。")
     return 0
 

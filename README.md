@@ -308,6 +308,14 @@ scripts/
   scrape_mpfa_funds.py   CLI 入口
   make_sample_raw.py     產生合成樣例基金資訊表 HTML
   gen_field_doc.py       由 fields.py 重新產生 docs/FIELDS.md
+  build_pages.py         由 funds_latest.json 產生 docs/funds/ 靜態頁與 docs/sitemap.xml
+docs/                    GitHub Pages 發佈目錄（分支部署只支援倉庫根目錄或 /docs）
+  index.html             站台首頁
+  fee-calculator.html    費用終身成本計算器
+  funds/                 基金資料庫（build_pages.py 產生）
+  guides/                強積金科普指南
+  sitemap.xml            全站 sitemap（build_pages.py 產生）
+  robots.txt / .nojekyll
 tests/
   test_offline.py        單元測試
   test_mpp_html.py       HTML 解析器測試（含真實頁面）
@@ -315,6 +323,26 @@ tests/
 data/raw/README.md       原始檔投放目錄說明
 docs/FIELDS.md           欄位映射表（產生檔）
 ```
+
+## 網站部署
+
+站台以 GitHub Pages 的分支部署發佈，來源為預設分支的 `/docs` 目錄，網址為
+<https://cybercoder-js.github.io/MPF-PROJECT/>。
+
+注意站台位於**子路徑** `/MPF-PROJECT/` 之下，而非網域根目錄：因此頁面之間的
+連結，以及 CSS／JS／JSON 的引用，一律使用相對路徑，**不可以 `/` 開頭**，
+否則在子路徑下會全部 404。絕對網址只出現在 `canonical`、`og:url` 與
+`sitemap.xml` 裡，由 `--base-url` 決定。
+
+資料更新後重新產生基金頁：
+
+```bash
+python scripts/build_pages.py \
+  --base-url https://cybercoder-js.github.io/MPF-PROJECT --clean
+```
+
+`--clean` 會先清空 `docs/funds/`。`docs/.nojekyll` 用於停用 Jekyll 處理，
+確保以底線開頭的檔名與目錄照樣發佈。
 
 ## 資料使用聲明
 
